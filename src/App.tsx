@@ -17,7 +17,7 @@ const genId    = () => Math.random().toString(36).slice(2,9);
 const todayStr = () => new Date().toISOString().slice(0,10);
 const weekKey  = () => {
   const d=new Date(), j=new Date(d.getFullYear(),0,1);
-  return `${d.getFullYear()}-W${String(Math.ceil(((d.getTime()-j.getTime())/864e5+j.getDay()+1)/7)).padStart(2,"0")}`;
+  return `${d.getFullYear()}-W${String(Math.ceil(((d-j)/864e5+j.getDay()+1)/7)).padStart(2,"0")}`;
 };
 const storeColor = (id: string) => STORES.find(x=>x.id===id)?.color||"#6B7280";
 const storeBg    = (id: string) => STORES.find(x=>x.id===id)?.light||"#F3F4F6";
@@ -58,7 +58,55 @@ async function dbGetTs(key: string) {
 const ITEMS_KEY   = "family_items";
 const HISTORY_KEY = "family_history";
 
+const CORRECT_PIN = "1234";
+const PIN_KEY = "grocery_app_pin_verified";
+
+function PinScreen({ onUnlock }: { onUnlock: () => void }) {
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState(false);
+
+  const handleSubmit = () => {
+    if (pin === CORRECT_PIN) {
+      localStorage.setItem(PIN_KEY, Date.now().toString());
+      onUnlock();
+    } else {
+      setError(true);
+      setPin("");
+      setTimeout(() => setError(false), 2000);
+    }
+  };
+
+  return (
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f9fafb"}}>
+      <div style={{background:"white",borderRadius:16,padding:"2rem",width:320,boxShadow:"0 4px 24px rgba(0,0,0,0.08)",textAlign:"center"}}>
+        <div style={{fontSize:40,marginBottom:12}}>🛒</div>
+        <div style={{fontSize:20,fontWeight:600,marginBottom:4}}>Family Groceries</div>
+        <div style={{fontSize:13,color:"#6B7280",marginBottom:"1.5rem"}}>Enter your access code to continue</div>
+        <input
+          type="password"
+          placeholder="Enter PIN / passphrase"
+          value={pin}
+          onChange={e=>{setPin(e.target.value);setError(false);}}
+          onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
+          style={{width:"100%",padding:"10px 14px",borderRadius:8,border:`1.5px solid ${error?"#EF4444":"#d1d5db"}`,fontSize:16,marginBottom:12,textAlign:"center",outline:"none"}}
+          autoFocus
+        />
+        {error && <div style={{color:"#EF4444",fontSize:13,marginBottom:8}}>Incorrect code. Try again.</div>}
+        <button onClick={handleSubmit} style={{width:"100%",padding:"10px",borderRadius:8,border:"none",background:"#4F46E5",color:"white",fontSize:15,cursor:"pointer",fontWeight:500}}>
+          Unlock
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
+  const [unlocked, setUnlocked] = useState(() => {
+    const ts = localStorage.getItem(PIN_KEY);
+    if (!ts) return false;
+    const days30 = 30 * 24 * 60 * 60 * 1000;
+    return Date.now() - parseInt(ts) < days30;
+  });
   const [items,    setItems]    = useState<any[]>([]);
   const [history,  setHistory]  = useState<any[]>([]);
   const [view,     setView]     = useState("list");
@@ -179,6 +227,8 @@ export default function App() {
   const doneCount = items.filter(i=>i.done).length;
   const syncDot   = status==="saving"?"#F59E0B":status==="error"?"#EF4444":"#10B981";
   const syncLabel = status==="loading"?"Connecting…":status==="saving"?"Saving…":status==="error"?"Sync error":lastSync?`Synced ${lastSync.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"})}`:"";
+
+  if (!unlocked) return <PinScreen onUnlock={() => setUnlocked(true)} />;
 
   if (status==="loading") return (
     <div style={{textAlign:"center",padding:"4rem 0",color:"#6B7280"}}>
