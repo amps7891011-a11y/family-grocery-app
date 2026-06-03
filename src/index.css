@@ -1,0 +1,5 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: sans-serif; background: #f9fafb; color: #111827; }
+input, select, button { font-family: inherit; }
+input, select { padding: 7px 10px; border: 1px solid #d1d5db; border-radius: 8px; outline: none; }
+input:focus, select:focus { border-color: #4F46E5; }
