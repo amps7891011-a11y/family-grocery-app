@@ -3,6 +3,9 @@ import { useState, useEffect, useCallback, useRef } from "react";
 const SUPABASE_URL = "https://mbvmnwulfllfgxivlerw.supabase.co";
 const SUPABASE_KEY = "sb_publishable_M5CMfYarPj6rsWCtsZMbDw_pWMZY25W";
 const POLL_MS = 5000;
+const DEFAULT_PIN = "1234";
+const PIN_TS_KEY = "grocery_pin_ts";
+const PIN_VAL_KEY = "grocery_pin_val";
 
 const STORES = [
   { id:"lidl",   name:"Lidl",   color:"#0050AA", light:"#E6F0FF", type:"general" },
@@ -17,7 +20,7 @@ const genId    = () => Math.random().toString(36).slice(2,9);
 const todayStr = () => new Date().toISOString().slice(0,10);
 const weekKey  = () => {
   const d=new Date(), j=new Date(d.getFullYear(),0,1);
-  return `${d.getFullYear()}-W${String(Math.ceil(((d-j)/864e5+j.getDay()+1)/7)).padStart(2,"0")}`;
+  return `${d.getFullYear()}-W${String(Math.ceil(((d.getTime()-j.getTime())/864e5+j.getDay()+1)/7)).padStart(2,"00")}`;
 };
 const storeColor = (id: string) => STORES.find(x=>x.id===id)?.color||"#6B7280";
 const storeBg    = (id: string) => STORES.find(x=>x.id===id)?.light||"#F3F4F6";
@@ -33,19 +36,16 @@ async function dbGet(key: string) {
     return { data: JSON.parse(rows[0].value), ts: rows[0].updated_at };
   } catch { return null; }
 }
-
 async function dbSet(key: string, value: any) {
   try {
-    const body = JSON.stringify({ key, value: JSON.stringify(value), updated_at: new Date().toISOString() });
     const r = await fetch(`${SUPABASE_URL}/rest/v1/grocery_store`, {
-      method: "POST",
-      headers: { ...headers, "Prefer": "resolution=merge-duplicates" },
-      body
+      method:"POST",
+      headers:{...headers,"Prefer":"resolution=merge-duplicates"},
+      body:JSON.stringify({key, value:JSON.stringify(value), updated_at:new Date().toISOString()})
     });
     return r.ok;
   } catch { return false; }
 }
-
 async function dbGetTs(key: string) {
   try {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/grocery_store?key=eq.${key}&select=updated_at`, { headers });
@@ -58,22 +58,18 @@ async function dbGetTs(key: string) {
 const ITEMS_KEY   = "family_items";
 const HISTORY_KEY = "family_history";
 
-const DEFAULT_PIN = "1234";
-const PIN_KEY = "grocery_app_pin_verified";
-const PIN_STORE_KEY = "grocery_app_pin";
-
+// ── PIN Screen ────────────────────────────────────────────────────────────────
 function PinScreen({ onUnlock }: { onUnlock: () => void }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
 
   const handleSubmit = () => {
-    const correctPin = localStorage.getItem(PIN_STORE_KEY) || DEFAULT_PIN;
-    if (pin === correctPin) {
-      localStorage.setItem(PIN_KEY, Date.now().toString());
+    const correct = localStorage.getItem(PIN_VAL_KEY) || DEFAULT_PIN;
+    if (pin === correct) {
+      localStorage.setItem(PIN_TS_KEY, Date.now().toString());
       onUnlock();
     } else {
-      setError(true);
-      setPin("");
+      setError(true); setPin("");
       setTimeout(() => setError(false), 2000);
     }
   };
@@ -85,59 +81,75 @@ function PinScreen({ onUnlock }: { onUnlock: () => void }) {
         <div style={{fontSize:20,fontWeight:600,marginBottom:4}}>Family Groceries</div>
         <div style={{fontSize:13,color:"#6B7280",marginBottom:"1.5rem"}}>Enter your access code to continue</div>
         <input
-          type="password"
-          placeholder="Enter PIN / passphrase"
-          value={pin}
-          onChange={e=>{setPin(e.target.value);setError(false);}}
+          type="password" placeholder="Enter PIN / passphrase"
+          value={pin} onChange={e=>{setPin(e.target.value);setError(false);}}
           onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
-          style={{width:"100%",padding:"10px 14px",borderRadius:8,border:`1.5px solid ${error?"#EF4444":"#d1d5db"}`,fontSize:16,marginBottom:12,textAlign:"center",outline:"none"}}
+          style={{width:"100%",padding:"10px 14px",borderRadius:8,border:`1.5px solid ${error?"#EF4444":"#d1d5db"}`,fontSize:16,marginBottom:12,textAlign:"center",outline:"none",boxSizing:"border-box"}}
           autoFocus
         />
         {error && <div style={{color:"#EF4444",fontSize:13,marginBottom:8}}>Incorrect code. Try again.</div>}
-        <button onClick={handleSubmit} style={{width:"100%",padding:"10px",borderRadius:8,border:"none",background:"#4F46E5",color:"white",fontSize:15,cursor:"pointer",fontWeight:500}}>
-          Unlock
-        </button>
+        <button onClick={handleSubmit} style={{width:"100%",padding:"10px",borderRadius:8,border:"none",background:"#4F46E5",color:"white",fontSize:15,cursor:"pointer",fontWeight:500}}>Unlock</button>
       </div>
-      {showChangePIN && (
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100}}>
-          <div style={{background:"white",borderRadius:16,padding:"1.5rem",width:320,boxShadow:"0 4px 24px rgba(0,0,0,0.15)"}}>
-            <div style={{fontSize:17,fontWeight:600,marginBottom:"1rem"}}>🔐 Change PIN</div>
-            {["current","next","confirm"].map((f,i)=>(
-              <div key={f} style={{marginBottom:10}}>
-                <div style={{fontSize:13,color:"#6B7280",marginBottom:4}}>{["Current PIN","New PIN","Confirm new PIN"][i]}</div>
-                <input type="password" placeholder={["Enter current PIN","Min 4 characters","Re-enter new PIN"][i]} value={(pinForm as any)[f]} onChange={e=>setPinForm(p=>({...p,[f]:e.target.value}))} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14}}/>
-              </div>
-            ))}
-            {pinMsg && <div style={{fontSize:13,color:pinMsg.ok?"#10B981":"#EF4444",marginBottom:10}}>{pinMsg.text}</div>}
-            <div style={{display:"flex",gap:8,marginTop:4}}>
-              <button onClick={()=>{setShowChangePIN(false);setPinForm({current:"",next:"",confirm:""});setPinMsg(null);}} style={{flex:1,padding:"9px",borderRadius:8,border:"0.5px solid #d1d5db",background:"none",cursor:"pointer"}}>Cancel</button>
-              <button onClick={handleChangePIN} style={{flex:2,padding:"9px",borderRadius:8,border:"none",background:"#4F46E5",color:"white",cursor:"pointer",fontWeight:500}}>Change PIN</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
+// ── Change PIN Modal ──────────────────────────────────────────────────────────
+function ChangePinModal({ onClose }: { onClose: () => void }) {
+  const [f, setF] = useState({current:"",next:"",confirm:""});
+  const [msg, setMsg] = useState<{text:string,ok:boolean}|null>(null);
+
+  const handle = () => {
+    const correct = localStorage.getItem(PIN_VAL_KEY) || DEFAULT_PIN;
+    if (f.current !== correct) { setMsg({text:"Current PIN is incorrect",ok:false}); return; }
+    if (f.next.length < 4)     { setMsg({text:"New PIN must be at least 4 characters",ok:false}); return; }
+    if (f.next !== f.confirm)  { setMsg({text:"New PINs don't match",ok:false}); return; }
+    localStorage.setItem(PIN_VAL_KEY, f.next);
+    setMsg({text:"PIN changed successfully!",ok:true});
+    setTimeout(onClose, 1500);
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100}}>
+      <div style={{background:"white",borderRadius:16,padding:"1.5rem",width:320,boxShadow:"0 4px 24px rgba(0,0,0,0.15)"}}>
+        <div style={{fontSize:17,fontWeight:600,marginBottom:"1rem"}}>🔐 Change PIN</div>
+        {(["current","next","confirm"] as const).map((key,i)=>(
+          <div key={key} style={{marginBottom:10}}>
+            <div style={{fontSize:13,color:"#6B7280",marginBottom:4}}>{["Current PIN","New PIN","Confirm new PIN"][i]}</div>
+            <input type="password" placeholder={["Enter current PIN","Min 4 characters","Re-enter new PIN"][i]}
+              value={f[key]} onChange={e=>setF(p=>({...p,[key]:e.target.value}))}
+              style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,boxSizing:"border-box"}}/>
+          </div>
+        ))}
+        {msg && <div style={{fontSize:13,color:msg.ok?"#10B981":"#EF4444",marginBottom:10}}>{msg.text}</div>}
+        <div style={{display:"flex",gap:8,marginTop:4}}>
+          <button onClick={onClose} style={{flex:1,padding:"9px",borderRadius:8,border:"0.5px solid #d1d5db",background:"none",cursor:"pointer"}}>Cancel</button>
+          <button onClick={handle} style={{flex:2,padding:"9px",borderRadius:8,border:"none",background:"#4F46E5",color:"white",cursor:"pointer",fontWeight:500}}>Change PIN</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [unlocked, setUnlocked] = useState(() => {
-    const ts = localStorage.getItem(PIN_KEY);
+    const ts = localStorage.getItem(PIN_TS_KEY);
     if (!ts) return false;
-    const days30 = 30 * 24 * 60 * 60 * 1000;
-    return Date.now() - parseInt(ts) < days30;
+    return Date.now() - parseInt(ts) < 30*24*60*60*1000;
   });
-  const [items,    setItems]    = useState<any[]>([]);
-  const [history,  setHistory]  = useState<any[]>([]);
-  const [view,     setView]     = useState("list");
-  const [status,   setStatus]   = useState("loading");
-  const [lastSync, setLastSync] = useState<Date|null>(null);
-  const [form,     setForm]     = useState({store:"lidl",customStore:"",name:"",qty:1,unit:"item(s)"});
-  const [suggs,    setSuggs]    = useState<any[]>([]);
-  const [showSugg, setShowSugg] = useState(false);
-  const [postShop, setPostShop] = useState<any>(null);
-  const [postForm, setPostForm] = useState<any>({});
-  const [extra,    setExtra]    = useState({store:"lidl",customStore:"",name:"",qty:1,unit:"item(s)",price:""});
+  const [items,       setItems]       = useState<any[]>([]);
+  const [history,     setHistory]     = useState<any[]>([]);
+  const [view,        setView]        = useState("list");
+  const [status,      setStatus]      = useState("loading");
+  const [lastSync,    setLastSync]    = useState<Date|null>(null);
+  const [form,        setForm]        = useState({store:"lidl",customStore:"",name:"",qty:1,unit:"item(s)"});
+  const [suggs,       setSuggs]       = useState<any[]>([]);
+  const [showSugg,    setShowSugg]    = useState(false);
+  const [postShop,    setPostShop]    = useState<any>(null);
+  const [postForm,    setPostForm]    = useState<any>({});
+  const [extra,       setExtra]       = useState({store:"lidl",customStore:"",name:"",qty:1,unit:"item(s)",price:""});
+  const [showPinModal,setShowPinModal]= useState(false);
 
   const lastItemsTs   = useRef<string|null>(null);
   const lastHistoryTs = useRef<string|null>(null);
@@ -147,67 +159,60 @@ export default function App() {
 
   const pull = useCallback(async (force=false) => {
     try {
-      const [iTs, hTs] = await Promise.all([dbGetTs(ITEMS_KEY), dbGetTs(HISTORY_KEY)]);
-      const itemsChanged   = force || iTs !== lastItemsTs.current;
-      const historyChanged = force || hTs !== lastHistoryTs.current;
-      const fetches = await Promise.all([
-        itemsChanged   ? dbGet(ITEMS_KEY)   : Promise.resolve(null),
-        historyChanged ? dbGet(HISTORY_KEY) : Promise.resolve(null),
+      const [iTs,hTs] = await Promise.all([dbGetTs(ITEMS_KEY),dbGetTs(HISTORY_KEY)]);
+      const iChanged = force||iTs!==lastItemsTs.current;
+      const hChanged = force||hTs!==lastHistoryTs.current;
+      const [iRes,hRes] = await Promise.all([
+        iChanged ? dbGet(ITEMS_KEY)   : Promise.resolve(null),
+        hChanged ? dbGet(HISTORY_KEY) : Promise.resolve(null),
       ]);
-      if (fetches[0]) { setItems(fetches[0].data||[]); lastItemsTs.current = iTs; }
-      if (fetches[1]) { setHistory(fetches[1].data||[]); lastHistoryTs.current = hTs; }
-      setLastSync(new Date());
-      setStatus("ok");
+      if (iRes) { setItems(iRes.data||[]); lastItemsTs.current=iTs; }
+      if (hRes) { setHistory(hRes.data||[]); lastHistoryTs.current=hTs; }
+      setLastSync(new Date()); setStatus("ok");
     } catch { setStatus("error"); }
   }, []);
 
   useEffect(() => {
     pull(true);
-    const t = setInterval(() => { if (!isSaving.current) pull(false); }, POLL_MS);
-    return () => clearInterval(t);
+    const t = setInterval(()=>{ if(!isSaving.current) pull(false); }, POLL_MS);
+    return ()=>clearInterval(t);
   }, [pull]);
 
   useEffect(() => {
     if (!history.length) return;
-    const freq: any = {};
-    history.forEach((wk:any) => wk.items.forEach((it:any) => {
-      const k = `${it.storeId}||${it.name}||${it.unit}`;
-      freq[k] = (freq[k]||0)+1;
+    const freq: any={};
+    history.forEach((wk:any)=>wk.items.forEach((it:any)=>{
+      const k=`${it.storeId}||${it.name}||${it.unit}`;
+      freq[k]=(freq[k]||0)+1;
     }));
-    const cur = new Set(itemsRef.current.map((i:any)=>`${i.storeId}||${i.name}||${i.unit}`));
-    const s = Object.entries(freq)
-      .filter(([k])=>!cur.has(k)).sort((a:any,b:any)=>b[1]-a[1]).slice(0,12)
-      .map(([k])=>{ const [storeId,name,unit]=k.split("||"); return {storeId,name,unit}; });
+    const cur=new Set(itemsRef.current.map((i:any)=>`${i.storeId}||${i.name}||${i.unit}`));
+    const s=Object.entries(freq).filter(([k])=>!cur.has(k)).sort((a:any,b:any)=>b[1]-a[1]).slice(0,12)
+      .map(([k])=>{const [storeId,name,unit]=k.split("||");return{storeId,name,unit};});
     setSuggs(s);
-    if (s.length && !itemsRef.current.length) setShowSugg(true);
+    if (s.length&&!itemsRef.current.length) setShowSugg(true);
   }, [history]);
 
-  const mutateItems = async (fn: (prev: any[]) => any[]) => {
-    isSaving.current = true;
-    setStatus("saving");
-    const next = fn(itemsRef.current);
-    setItems(next);
-    await dbSet(ITEMS_KEY, next);
-    const ts = await dbGetTs(ITEMS_KEY);
-    lastItemsTs.current = ts;
-    setLastSync(new Date());
-    isSaving.current = false;
-    setStatus("ok");
+  const mutateItems = async (fn: (p:any[])=>any[]) => {
+    isSaving.current=true; setStatus("saving");
+    const next=fn(itemsRef.current); setItems(next);
+    await dbSet(ITEMS_KEY,next);
+    lastItemsTs.current=await dbGetTs(ITEMS_KEY);
+    setLastSync(new Date()); isSaving.current=false; setStatus("ok");
   };
 
   const addItem = async () => {
     if (!form.name.trim()) return;
-    const st = STORES.find(x=>x.id===form.store);
-    const storeName = form.store==="misc"?(form.customStore||"Misc"):st!.name;
+    const st=STORES.find(x=>x.id===form.store);
+    const storeName=form.store==="misc"?(form.customStore||"Misc"):st!.name;
     await mutateItems(prev=>[...prev,{id:genId(),storeId:form.store,store:storeName,name:form.name.trim(),qty:form.qty,unit:form.unit,done:false,date:todayStr()}]);
     setForm(f=>({...f,name:"",qty:1,unit:"item(s)"}));
   };
 
-  const toggleDone = (id: string) => mutateItems(prev=>prev.map(i=>i.id===id?{...i,done:!i.done}:i));
-  const removeItem = (id: string) => mutateItems(prev=>prev.filter(i=>i.id!==id));
+  const toggleDone = (id:string) => mutateItems(prev=>prev.map(i=>i.id===id?{...i,done:!i.done}:i));
+  const removeItem = (id:string) => mutateItems(prev=>prev.filter(i=>i.id!==id));
   const clearDone  = () => mutateItems(prev=>prev.filter(i=>!i.done));
 
-  const acceptSugg = async (s: any) => {
+  const acceptSugg = async (s:any) => {
     const st=STORES.find(x=>x.id===s.storeId)||STORES[0];
     await mutateItems(prev=>[...prev,{id:genId(),storeId:s.storeId,store:st.name,name:s.name,qty:1,unit:s.unit,done:false,date:todayStr()}]);
     setSuggs(prev=>prev.filter(x=>!(x.storeId===s.storeId&&x.name===s.name)));
@@ -228,45 +233,28 @@ export default function App() {
   };
 
   const saveWeek = async () => {
-    isSaving.current = true;
-    setStatus("saving");
-    const wk=weekKey();
-    const extras=postShop.extras||[];
+    isSaving.current=true; setStatus("saving");
+    const wk=weekKey(), extras=postShop.extras||[];
     const rec={week:wk,date:todayStr(),items:[...items,...extras],spending:postForm,totalSpent:Object.values(postForm).reduce((a:any,b:any)=>a+(parseFloat(b.spent)||0),0)};
     const newHist=history.find((h:any)=>h.week===wk)?history.map((h:any)=>h.week===wk?rec:h):[rec,...history];
-    setHistory(newHist);
-    setItems([]);
-    await Promise.all([dbSet(ITEMS_KEY,[]), dbSet(HISTORY_KEY,newHist)]);
+    setHistory(newHist); setItems([]);
+    await Promise.all([dbSet(ITEMS_KEY,[]),dbSet(HISTORY_KEY,newHist)]);
     const [iTs,hTs]=await Promise.all([dbGetTs(ITEMS_KEY),dbGetTs(HISTORY_KEY)]);
     lastItemsTs.current=iTs; lastHistoryTs.current=hTs;
-    isSaving.current=false; setStatus("ok");
-    setLastSync(new Date()); setPostShop(null); setView("list");
+    isSaving.current=false; setStatus("ok"); setLastSync(new Date());
+    setPostShop(null); setView("list");
   };
 
-  const [showChangePIN, setShowChangePIN] = useState(false);
-  const [pinForm, setPinForm] = useState({current:"", next:"", confirm:""});
-  const [pinMsg, setPinMsg] = useState<{text:string,ok:boolean}|null>(null);
+  const grouped=STORES.map(s=>({...s,items:items.filter(i=>i.storeId===s.id)})).filter(g=>g.items.length>0);
+  const doneCount=items.filter(i=>i.done).length;
+  const syncDot=status==="saving"?"#F59E0B":status==="error"?"#EF4444":"#10B981";
+  const syncLabel=status==="loading"?"Connecting…":status==="saving"?"Saving…":status==="error"?"Sync error":lastSync?`Synced ${lastSync.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"})}`:"";
 
-  const handleChangePIN = () => {
-    const correctPin = localStorage.getItem(PIN_STORE_KEY) || DEFAULT_PIN;
-    if (pinForm.current !== correctPin) { setPinMsg({text:"Current PIN is incorrect",ok:false}); return; }
-    if (pinForm.next.length < 4) { setPinMsg({text:"New PIN must be at least 4 characters",ok:false}); return; }
-    if (pinForm.next !== pinForm.confirm) { setPinMsg({text:"New PINs don't match",ok:false}); return; }
-    localStorage.setItem(PIN_STORE_KEY, pinForm.next);
-    setPinMsg({text:"PIN changed successfully!",ok:true});
-    setPinForm({current:"",next:"",confirm:""});
-    setTimeout(()=>{setPinMsg(null);setShowChangePIN(false);},2000);
-  };
-  const doneCount = items.filter(i=>i.done).length;
-  const syncDot   = status==="saving"?"#F59E0B":status==="error"?"#EF4444":"#10B981";
-  const syncLabel = status==="loading"?"Connecting…":status==="saving"?"Saving…":status==="error"?"Sync error":lastSync?`Synced ${lastSync.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"})}`:"";
-
-  if (!unlocked) return <PinScreen onUnlock={() => setUnlocked(true)} />;
-
+  if (!unlocked) return <PinScreen onUnlock={()=>setUnlocked(true)} />;
   if (status==="loading") return (
     <div style={{textAlign:"center",padding:"4rem 0",color:"#6B7280"}}>
       <div style={{fontSize:40}}>🛒</div>
-      <div style={{marginTop:12,fontSize:15}}>Connecting to your shared list…</div>
+      <div style={{marginTop:12}}>Connecting to your shared list…</div>
     </div>
   );
 
@@ -284,20 +272,24 @@ export default function App() {
         .check-circle.done{background:#4F46E5;border-color:#4F46E5;}
         .sugg-chip{display:inline-flex;align-items:center;gap:6px;background:#f3f4f6;border:0.5px solid #e5e7eb;border-radius:999px;padding:4px 12px;font-size:13px;margin:4px;cursor:pointer;}
         .hist-card{background:#fff;border:0.5px solid #e5e7eb;border-radius:12px;padding:1rem 1.25rem;margin-bottom:12px;}
+        input,select{font-size:14px;}
         @media print{.no-print{display:none!important;}}
       `}</style>
 
+      {showPinModal && <ChangePinModal onClose={()=>setShowPinModal(false)} />}
+
+      {/* Header */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"1rem"}}>
         <div>
           <div style={{fontSize:20,fontWeight:500}}>🛒 Family Groceries</div>
           <div style={{fontSize:12,color:"#6B7280",display:"flex",alignItems:"center",gap:5}}>
             <span style={{width:7,height:7,borderRadius:"50%",background:syncDot,display:"inline-block"}}></span>
             {syncLabel}
-            <button onClick={()=>pull(true)} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#4F46E5",padding:"0 4px"}} title="Refresh">↻</button>
+            <button onClick={()=>pull(true)} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#4F46E5",padding:"0 4px"}}>↻</button>
           </div>
         </div>
         <div style={{display:"flex",gap:8}} className="no-print">
-          <button onClick={()=>setShowChangePIN(true)} style={{fontSize:13,padding:"6px 14px",borderRadius:8,border:"0.5px solid #d1d5db",background:"none",cursor:"pointer"}}>🔐 PIN</button>
+          <button onClick={()=>setShowPinModal(true)} style={{fontSize:13,padding:"6px 12px",borderRadius:8,border:"0.5px solid #d1d5db",background:"none",cursor:"pointer"}}>🔐</button>
           {view==="list"&&items.length>0&&<>
             <button onClick={()=>setView("print")} style={{fontSize:13,padding:"6px 14px",borderRadius:8,border:"0.5px solid #d1d5db",background:"none",cursor:"pointer"}}>🖨 Print</button>
             <button onClick={startPostShop} style={{fontSize:13,padding:"6px 14px",borderRadius:8,border:"none",background:"#4F46E5",color:"white",cursor:"pointer"}}>Back from store</button>
@@ -305,6 +297,7 @@ export default function App() {
         </div>
       </div>
 
+      {/* Tabs */}
       <div className="no-print" style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",marginBottom:"1rem"}}>
         {["list","history"].map(t=>(
           <button key={t} className={`tab-btn ${(view===t||(["postshop","print"].includes(view)&&t==="list"))?"active":""}`} onClick={()=>setView(t)}>
@@ -313,6 +306,7 @@ export default function App() {
         ))}
       </div>
 
+      {/* Print view */}
       {view==="print"&&(
         <div>
           <div className="no-print" style={{display:"flex",gap:10,marginBottom:"1rem"}}>
@@ -336,6 +330,7 @@ export default function App() {
         </div>
       )}
 
+      {/* List view */}
       {view==="list"&&(
         <div>
           {showSugg&&suggs.length>0&&(
@@ -357,7 +352,6 @@ export default function App() {
               })}
             </div>
           )}
-
           <div className="no-print add-row">
             <select value={form.store} onChange={e=>setForm(f=>({...f,store:e.target.value}))} style={{borderRadius:8}}>
               {STORES.map(s=><option key={s.id} value={s.id}>{s.name}{s.type==="indian"?" 🌶":s.type==="misc"?" +":""}</option>)}
@@ -370,7 +364,6 @@ export default function App() {
             </select>
             <button onClick={addItem} style={{background:"#4F46E5",color:"white",border:"none",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontWeight:500}}>Add</button>
           </div>
-
           {grouped.length===0&&(
             <div style={{textAlign:"center",padding:"3rem 0",color:"#6B7280"}}>
               <div style={{fontSize:40}}>🛒</div>
@@ -378,7 +371,6 @@ export default function App() {
               {suggs.length>0&&!showSugg&&<button onClick={()=>setShowSugg(true)} style={{marginTop:12,fontSize:13,padding:"6px 14px",borderRadius:8,border:"0.5px solid #4F46E5",background:"none",color:"#4F46E5",cursor:"pointer"}}>Show {suggs.length} suggestions</button>}
             </div>
           )}
-
           {grouped.map(grp=>(
             <div key={grp.id}>
               <div className="sec-hdr" style={{color:grp.color}}>
@@ -400,11 +392,11 @@ export default function App() {
               ))}
             </div>
           ))}
-
           {doneCount>0&&<button className="no-print" onClick={clearDone} style={{marginTop:12,fontSize:13,padding:"6px 14px",borderRadius:8,border:"0.5px solid #EF4444",background:"none",color:"#EF4444",cursor:"pointer"}}>Remove {doneCount} checked item{doneCount>1?"s":""}</button>}
         </div>
       )}
 
+      {/* Post-shop */}
       {view==="postshop"&&postShop&&(
         <div>
           <div style={{fontSize:16,fontWeight:500,marginBottom:4}}>Post-shopping summary</div>
@@ -452,6 +444,7 @@ export default function App() {
         </div>
       )}
 
+      {/* History */}
       {view==="history"&&(
         <div>
           {!history.length&&<div style={{textAlign:"center",padding:"3rem 0",color:"#6B7280"}}><div style={{fontSize:40}}>📋</div><div style={{marginTop:8}}>No history yet.</div></div>}
