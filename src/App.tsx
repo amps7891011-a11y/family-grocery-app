@@ -17,7 +17,7 @@ const genId    = () => Math.random().toString(36).slice(2,9);
 const todayStr = () => new Date().toISOString().slice(0,10);
 const weekKey  = () => {
   const d=new Date(), j=new Date(d.getFullYear(),0,1);
-  return `${d.getFullYear()}-W${String(Math.ceil(((d-j)/864e5+j.getDay()+1)/7)).padStart(2,"0")}`;
+  return `${d.getFullYear()}-W${String(Math.ceil(((d.getTime()-j.getTime())/864e5+j.getDay()+1)/7)).padStart(2,"0")}`;
 };
 const storeColor = (id: string) => STORES.find(x=>x.id===id)?.color||"#6B7280";
 const storeBg    = (id: string) => STORES.find(x=>x.id===id)?.light||"#F3F4F6";
