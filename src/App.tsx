@@ -58,15 +58,17 @@ async function dbGetTs(key: string) {
 const ITEMS_KEY   = "family_items";
 const HISTORY_KEY = "family_history";
 
-const CORRECT_PIN = "1234";
+const DEFAULT_PIN = "1234";
 const PIN_KEY = "grocery_app_pin_verified";
+const PIN_STORE_KEY = "grocery_app_pin";
 
 function PinScreen({ onUnlock }: { onUnlock: () => void }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
 
   const handleSubmit = () => {
-    if (pin === CORRECT_PIN) {
+    const correctPin = localStorage.getItem(PIN_STORE_KEY) || DEFAULT_PIN;
+    if (pin === correctPin) {
       localStorage.setItem(PIN_KEY, Date.now().toString());
       onUnlock();
     } else {
@@ -96,6 +98,24 @@ function PinScreen({ onUnlock }: { onUnlock: () => void }) {
           Unlock
         </button>
       </div>
+      {showChangePIN && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100}}>
+          <div style={{background:"white",borderRadius:16,padding:"1.5rem",width:320,boxShadow:"0 4px 24px rgba(0,0,0,0.15)"}}>
+            <div style={{fontSize:17,fontWeight:600,marginBottom:"1rem"}}>🔐 Change PIN</div>
+            {["current","next","confirm"].map((f,i)=>(
+              <div key={f} style={{marginBottom:10}}>
+                <div style={{fontSize:13,color:"#6B7280",marginBottom:4}}>{["Current PIN","New PIN","Confirm new PIN"][i]}</div>
+                <input type="password" placeholder={["Enter current PIN","Min 4 characters","Re-enter new PIN"][i]} value={(pinForm as any)[f]} onChange={e=>setPinForm(p=>({...p,[f]:e.target.value}))} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14}}/>
+              </div>
+            ))}
+            {pinMsg && <div style={{fontSize:13,color:pinMsg.ok?"#10B981":"#EF4444",marginBottom:10}}>{pinMsg.text}</div>}
+            <div style={{display:"flex",gap:8,marginTop:4}}>
+              <button onClick={()=>{setShowChangePIN(false);setPinForm({current:"",next:"",confirm:""});setPinMsg(null);}} style={{flex:1,padding:"9px",borderRadius:8,border:"0.5px solid #d1d5db",background:"none",cursor:"pointer"}}>Cancel</button>
+              <button onClick={handleChangePIN} style={{flex:2,padding:"9px",borderRadius:8,border:"none",background:"#4F46E5",color:"white",cursor:"pointer",fontWeight:500}}>Change PIN</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -223,7 +243,20 @@ export default function App() {
     setLastSync(new Date()); setPostShop(null); setView("list");
   };
 
-  const grouped = STORES.map(s=>({...s,items:items.filter(i=>i.storeId===s.id)})).filter(g=>g.items.length>0);
+  const [showChangePIN, setShowChangePIN] = useState(false);
+  const [pinForm, setPinForm] = useState({current:"", next:"", confirm:""});
+  const [pinMsg, setPinMsg] = useState<{text:string,ok:boolean}|null>(null);
+
+  const handleChangePIN = () => {
+    const correctPin = localStorage.getItem(PIN_STORE_KEY) || DEFAULT_PIN;
+    if (pinForm.current !== correctPin) { setPinMsg({text:"Current PIN is incorrect",ok:false}); return; }
+    if (pinForm.next.length < 4) { setPinMsg({text:"New PIN must be at least 4 characters",ok:false}); return; }
+    if (pinForm.next !== pinForm.confirm) { setPinMsg({text:"New PINs don't match",ok:false}); return; }
+    localStorage.setItem(PIN_STORE_KEY, pinForm.next);
+    setPinMsg({text:"PIN changed successfully!",ok:true});
+    setPinForm({current:"",next:"",confirm:""});
+    setTimeout(()=>{setPinMsg(null);setShowChangePIN(false);},2000);
+  };
   const doneCount = items.filter(i=>i.done).length;
   const syncDot   = status==="saving"?"#F59E0B":status==="error"?"#EF4444":"#10B981";
   const syncLabel = status==="loading"?"Connecting…":status==="saving"?"Saving…":status==="error"?"Sync error":lastSync?`Synced ${lastSync.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"})}`:"";
@@ -264,6 +297,7 @@ export default function App() {
           </div>
         </div>
         <div style={{display:"flex",gap:8}} className="no-print">
+          <button onClick={()=>setShowChangePIN(true)} style={{fontSize:13,padding:"6px 14px",borderRadius:8,border:"0.5px solid #d1d5db",background:"none",cursor:"pointer"}}>🔐 PIN</button>
           {view==="list"&&items.length>0&&<>
             <button onClick={()=>setView("print")} style={{fontSize:13,padding:"6px 14px",borderRadius:8,border:"0.5px solid #d1d5db",background:"none",cursor:"pointer"}}>🖨 Print</button>
             <button onClick={startPostShop} style={{fontSize:13,padding:"6px 14px",borderRadius:8,border:"none",background:"#4F46E5",color:"white",cursor:"pointer"}}>Back from store</button>
