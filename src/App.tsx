@@ -30,7 +30,6 @@ const weekKey  = () => {
   return `${d.getFullYear()}-W${String(Math.ceil(((d.getTime()-j.getTime())/864e5+j.getDay()+1)/7)).padStart(2,"0")}`;
 };
 const storeColor = (id:string) => STORES.find(x=>x.id===id)?.color||"#374151";
-const storeBg    = (id:string) => STORES.find(x=>x.id===id)?.light||"#F3F4F6";
 const storeEmoji = (id:string) => STORES.find(x=>x.id===id)?.emoji||"🏪";
 const fmtGBP     = (n:number) => `£${n.toFixed(2)}`;
 
